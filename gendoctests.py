@@ -234,7 +234,6 @@ class DocTestGenerator(object):
             outfile.write("%s%s\n" % (indent * "    ", line))
 
         for test, comment_span in tests_in_file(file):
-            print "\nProcessing test case: ", test.test_name
             test_suite      = test.test_args.get("suite", None)
             test_fixture    = test.test_args.get("fixture", None)
 
@@ -273,20 +272,38 @@ class DocTestGenerator(object):
 
         outfile.close()
 
-def usage():
-    """
-    Prints out usage for the DocTest generator.
-    """
-    print "Usage: %s <options> <files>"
-    print "   Options:"
-    print "     -f <output_folder>      Output folder where test cases are written to."
-    print "     -p <output_file_prefix> Prefix of the generated output files (default - none)."
-    print "     -s <output_file_suffix> Suffix of the generated output files (default - _tests)."
-    print "     -e <output_file_ext>    Extension of the generated output files."
-
-def parse_options():
-    from optparse import OptionParser
-
 if __name__ == "__main__":
-    pass
+    from optparse import OptionParser
+    optparser = OptionParser(usage = "%prog [options] <files>",
+                             version = "%prog 0.1")
+    optparser.add_option("-o", "--outfolder", dest = "output_folder", default="",
+                         help = "Output folder where test cases are written to.",
+                         metavar = "OUTPUT_FOLDER")
+    optparser.add_option("-p", "--prefix", dest = "output_file_prefix", default="",
+                         help = "Prefix of the generated output files (default - none).",
+                         metavar = "OUTPUT_FILE_PREFIX")
+    optparser.add_option("-s", "--suffix", dest = "output_file_suffix", default="_tests",
+                         help = "Suffix of the generated output files (default - _tests).",
+                         metavar = "OUTPUT_FILE_SUFFIX")
+    optparser.add_option("-e", "--extension", dest = "output_file_extension", default="",
+                         help = "Extension of the generated output files.",
+                         metavar = "OUTPUT_FILE_EXT")
+
+
+    (options, args) = optparser.parse_args()
+    # print "Options: ", options
+    # print "Args: ", args
+
+    if not args:
+        print >> sys.stderr, "Please enter files to generate tests cases for."
+        optparser.print_help()
+
+    docgen = DocTestGenerator(options.output_folder,
+                              options.output_file_prefix,
+                              options.output_file_suffix,
+                              options.output_file_extension)
+    # process the leftover files
+    for arg in args:
+        print "Processing File: ", arg
+        doc.generate_tests_cases(arg)
 
