@@ -1,0 +1,91 @@
+What is DocTest++?
+------------------
+
+Python allows doctests - tests to be embedded within the documentation of a
+function.  This has the advantage of seeing all the test case associated
+with a bit of code then and there.  
+
+DocTest++ bring this functionality to C/C++ code.  Working in conjunction
+with UnitTest++, DocTest++ extracts fragments from the documentation in a
+header and source files and generates UnitTest++ specific test cases for
+them.
+
+Syntax
+------
+
+Tests must be within multiline comments.  Comments can be anywhere.  The
+tests must be enclosed with @test and @endtest tags.  The contents between
+the @test and @endtest tags are used verbatim as the contents of the
+generated test blocks.
+
+For example:
+
+/**
+ * Adds two numbers.
+ *
+ * @test(TestAddition)
+ *  CHECK(3, add2(1, 2));
+ * @endtest
+ */
+int add2(int a, int b) { return a + b; }
+
+would generate the following test code in UnitTest++.
+
+TEST(TestAddition)
+{
+    CHECK(3, add2(1, 2));
+}
+
+Clearly the "@endtest" tag is the token that ends the test.  To include an
+"@endtest" simply prefix the @endtask with an "@".  So the following code:
+
+/**
+ * Adds two numbers.
+ *
+ * @test(TestAddition)
+ *  CHECK(3, add2(1, 2));
+ *  printf("Our End Tag is @@endtest");
+ * @endtest
+ */
+int add2(int a, int b) { return a + b; }
+
+would generate:
+
+TEST(TestAddition)
+{
+    CHECK(3, add2(1, 2));
+    printf("Our End Tag is @endtest");
+}
+
+Test Configuration
+------------------
+
+The @test tag can also take parameters.  The first parameter is the name of
+the text.  So far the following options are available (for now):
+    suite   -   The Suite in which the tests will be generated.
+    fixture -   The fixture to which the test belongs.
+
+So the following snippet:
+
+/**
+ * Adds two numbers.
+ *
+ * @test(TestAddition, fixture = "NumericFixture",
+ *                     suite = "NumberTests")
+ *  CHECK(3, add2(1, 2));
+ *  printf("Our End Tag is @@endtest");
+ * @endtest
+ */
+int add2(int a, int b) { return a + b; }
+
+would generate:
+
+SUITE(NumberTests)
+{
+TEST_FIXTURE(NumericFixture, TestAddition)
+{
+    CHECK(3, add2(1, 2));
+    printf("Our End Tag is @endtest");
+}
+}
+
