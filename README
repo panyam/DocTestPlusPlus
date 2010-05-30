@@ -1,9 +1,9 @@
 What is DocTest++?
 ------------------
 
-Python allows doctests - tests to be embedded within the documentation of a
+Python allows doctests - tests that can be embedded within the documentation of a
 function.  This has the advantage of seeing all the test case associated
-with a bit of code then and there.  
+with a bit of code right then and there.  
 
 DocTest++ bring this functionality to C/C++ code.  Working in conjunction
 with UnitTest++, DocTest++ extracts fragments from the documentation in a
@@ -89,3 +89,4 @@ TEST_FIXTURE(NumericFixture, TestAddition)
 }
 }
 
+More details are in the Wiki.
