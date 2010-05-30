@@ -1,7 +1,8 @@
 
+
 import re, sys, os
 
-quoted_string_re    = r"""   "[^"]*(?!\\)"   |  '[^']*(?!\\)'    """
+quoted_string_re    = r"""   ".*?(?<![\\])"   |  '.*?(?<!\\)'    """
 quote_or_comment    = re.compile(r"""   "[^"]*"   |  '[^']*'  |   \/\/[^\r\n]*$   | \/\*.*?\*\/  """, re.X | re.S)
 
 # 
@@ -22,6 +23,14 @@ arg_name_value_re       = re.compile(r"""\s* , """ + arg_name_re + " = \s* (?P<A
 #
 endtest_re              = re.compile(""" (?<!@)@endtest """, re.S | re.X)
 
+class DocTestException(Exception):
+    def __init__(self, message, file_offset):
+        self.message = message;
+        self.file_offset = file_offset
+
+    def __str__(self):
+        return repr("Line %d: %s" % (self.file_offset, self.message))
+
 class DocTest(object):
     def __init__(self, name, offset, args, body, body_offset):
         self.test_name          = name
@@ -36,17 +45,16 @@ class DocTest(object):
         print "Test Body @ %d: " % (self.test_body_offset)
         print self.test_body
 
-def find_common_prefix(strings):
+def find_common_prefix_len(strings):
     """
-    Given a list of strings, finds the common prefix in all of them.
+    Given a list of strings, finds the length common prefix in all of them.
     So 
     apple
     applet
     application
-
-    would return "app"
+    would return 3
     """
-    prefix          = ""
+    prefix          = 0
     curr_index      = -1
     num_strings     = len(strings)
     string_lengths  = [len(s) for s in strings]
@@ -61,7 +69,7 @@ def find_common_prefix(strings):
                     ch_in_si = strings[0][curr_index]
                 elif strings[si][curr_index] != ch_in_si:
                     return prefix
-        prefix += strings[0][curr_index]
+        prefix += 1
 
 def comments_in_file(file_contents):
     """
@@ -89,7 +97,6 @@ def test_blocks_in_comment(comment):
             suite   -   The Suite in which the tests will be generated.
             fixture -   The fixture to which the test belongs.
     """
-
     curr_offset     = 0
     comment_left    = comment
 
@@ -112,7 +119,7 @@ def test_blocks_in_comment(comment):
             argmatch = arg_name_value_re.match(comment_left)
             if not argmatch:
                 print "Comment Left: |", comment_left
-                raise DTException("Missing argument or closing parenthesis in @test", curr_offfset)
+                raise DocTestException("Missing argument or closing parenthesis in @test", curr_offfset)
 
             # chomp away the arg
             comment_left = comment_left[argmatch.end():]
@@ -129,7 +136,7 @@ def test_blocks_in_comment(comment):
         # ok now read the test contents - this is anythign ending with @endtest
         etmatch = endtest_re.search(comment_left)
         if not etmatch:
-            raise DTException("Did not find a terminating @endtest", curr_offfset)
+            raise DocTestException("Did not find a terminating @endtest", curr_offfset)
 
         test_body_offset = curr_offset
         test_body = comment_left[:etmatch.start()]
@@ -162,81 +169,53 @@ def print_tests_in_file(file):
         # print comment
         test.describe()
 
-class DocTestGenerator(object):
-    def __init__(self, folder = "", prefix = "", suffix = "_test", ext = ""):
-        self.output_folder      = folder
-        self.output_file_prefix = prefix
-        self.output_file_suffix = suffix
-        self.output_file_ext    = ext
+def evaluate_file_line_offsets(file):
+    """
+    Given a file, returns the byte offsets where each line begins.
+    This is used for evaluating the line number corresponding to a
+    particular byte offset (where an error or @test tag occurs).
+    """
+    file_lines      = open(file).read().split("\n")
+    line_offsets    = [0]
+    for line in file_lines:
+        line_offsets.append(line_offsets[-1] + len(line))
+    return line_offsets
 
-    def evaluate_output_file(self, infile, create_output_folder = False):
-        """
-        Evaluate the output file path based on the input file.
-        """
-        fullpath, extension = os.path.splitext(infile)
-        dirname, basename = os.path.dirname(fullpath), os.path.basename(fullpath)
-        if self.output_file_ext:
-            extension = self.output_file_ext
-            if not extension.startswith("."):
-                extension = "." + extension
+def evaluate_line_number(line_offsets, file_offset):
+    """
+    Given a list of line offsets and a file offset, returns the line number
+    in which the file offset would fall.
+    """
+    num_lines = len(line_offsets)
+    for i in xrange(0, num_lines):
+        if file_offset < line_offsets[i]:
+            return i - 1
+    return num_lines - 1
 
-        output_folder = os.path.abspath(self.output_folder + dirname)
-        if output_folder:
-            if create_output_folder:
-                if not os.path.isdir(output_folder):
-                    print "Creating Output Directory: ", output_folder
-                    os.makedirs(output_folder)
+def generate_test_cases(infile_name, outfile_name = None):
+    """
+    Extracts all tests cases from infile and writes it to outfile.
+    If no output file is specified, output is sent to standard output.
+    """
+    outfile = sys.stdout
+    if outfile_name:
+        assert os.path.abspath(infile_name) != os.path.abspath(outfile_name), "Input and Output files are the same"
+        outfile = open(outfile_name, "w")
 
-            return "%s/%s%s%s%s" % (output_folder,
-                                    self.output_file_prefix,
-                                    basename,
-                                    self.output_file_suffix,
-                                    extension)
-        else:
-            return "%s%s%s%s" % (self.output_file_prefix,
-                                 basename,
-                                 self.output_file_suffix,
-                                 extension)
+    # evaluate the offsets within the file of each line so we can
+    # calculate which line a particular line falls in
+    line_offsets = evaluate_file_line_offsets(infile_name)
 
-    def evaluate_file_line_offsets(self, file):
-        file_lines      = open(file).read().split("\n")
-        line_offsets    = [0]
-        for line in file_lines:
-            line_offsets.append(line_offsets[-1] + len(line))
-        return line_offsets
+    indent = 0
+    def writeln(line):
+        if (outfile != sys.stdout): print "%s%s" % (indent * "    ", line)
+        outfile.write("%s%s\n" % (indent * "    ", line))
 
-    def evaluate_line_number(self, line_offsets, file_offset):
-        num_lines = len(line_offsets)
-        for i in xrange(0, num_lines):
-            if file_offset < line_offsets[i]:
-                return i - 1
-        return num_lines - 1
+    for test, comment_span in tests_in_file(infile_name):
+        test_suite      = test.test_args.get("suite", None)
+        test_fixture    = test.test_args.get("fixture", None)
 
-    def generate_test_cases(self, file):
-        """
-        Given a file, generates an output file with all the test cases in it.
-        """
-        output_file = self.evaluate_output_file(file, True)
-        print "Output File: ", output_file
-
-        assert output_file != file, "Input and Output files are the same"
-
-        outfile = open(output_file, "w")
-
-        # evaluate the offsets within the file of each line so we can
-        # calculate which line a particular line falls in
-        line_offsets = self.evaluate_file_line_offsets(file)
-
-        indent = 0
-
-        def writeln(line):
-            print "%s%s" % (indent * "    ", line)
-            outfile.write("%s%s\n" % (indent * "    ", line))
-
-        for test, comment_span in tests_in_file(file):
-            test_suite      = test.test_args.get("suite", None)
-            test_fixture    = test.test_args.get("fixture", None)
-
+        if not test.test_name == "__VERB__":
             if test_suite:
                 writeln("SUITE(%s)" % test_suite)
                 writeln("{")
@@ -247,63 +226,43 @@ class DocTestGenerator(object):
             else:
                 writeln("TEST(%s)" % (test.test_name))
             writeln("{")
-
-            # take care of the actual test body now
             indent += 1
-            test_lines = test.test_body.split("\n")
-            common_prefix = find_common_prefix(test_lines)
-            common_prefix_len = len(common_prefix)
 
-            line_number = self.evaluate_line_number(line_offsets, comment_span[0] + test.test_offset)
-            writeln('#line %d "%s"' % (line_number, file))
-            for line in test_lines: writeln(line[common_prefix_len:])
+        # write the line number where this snippet begins
+        line_number         = evaluate_line_number(line_offsets, comment_span[0] + test.test_offset)
+        writeln('#line %d "%s"' % (line_number, file))
 
+        # now write the tests
+        test_lines          = test.test_body.split("\n")
+        common_prefix_len   = find_common_prefix_len(test_lines)
+        for line in test_lines:
+            writeln(line[common_prefix_len:])
+
+        if not test.test_name == "__VERB__":
             indent -= 1
-
-            # close the TEST/TEST_FIXTURE block
-            writeln("}")
-
-            # close the SUITE block if any
-            if test_suite:
+            writeln("}")        # close the TEST/TEST_FIXTURE block
+            if test_suite:      # close the SUITE block if any
                 indent -= 1
                 writeln("}")
 
-            writeln("")     # and an empty line after test cases
+        writeln("")     # and an empty line after test cases
 
+    if outfile_name:
         outfile.close()
 
+def usage():
+    print >> sys.stderr, "Usage: %s <infile> <outfile>" % sys.argv[0]
+    sys.exit(1)
+
 if __name__ == "__main__":
-    from optparse import OptionParser
-    optparser = OptionParser(usage = "%prog [options] <files>",
-                             version = "%prog 0.1")
-    optparser.add_option("-o", "--outfolder", dest = "output_folder", default="",
-                         help = "Output folder where test cases are written to.",
-                         metavar = "OUTPUT_FOLDER")
-    optparser.add_option("-p", "--prefix", dest = "output_file_prefix", default="",
-                         help = "Prefix of the generated output files (default - none).",
-                         metavar = "OUTPUT_FILE_PREFIX")
-    optparser.add_option("-s", "--suffix", dest = "output_file_suffix", default="_tests",
-                         help = "Suffix of the generated output files (default - _tests).",
-                         metavar = "OUTPUT_FILE_SUFFIX")
-    optparser.add_option("-e", "--extension", dest = "output_file_extension", default="",
-                         help = "Extension of the generated output files.",
-                         metavar = "OUTPUT_FILE_EXT")
+    infile = outfile = None
 
+    try:
+        infile  = sys.argv[1]
+        try: outfile = sys.argv[2]
+        except Exception: pass
+    except Exception:
+        usage()
 
-    (options, args) = optparser.parse_args()
-    # print "Options: ", options
-    # print "Args: ", args
-
-    if not args:
-        print >> sys.stderr, "Please enter files to generate tests cases for."
-        optparser.print_help()
-
-    docgen = DocTestGenerator(options.output_folder,
-                              options.output_file_prefix,
-                              options.output_file_suffix,
-                              options.output_file_extension)
-    # process the leftover files
-    for arg in args:
-        print "Processing File: ", arg
-        doc.generate_tests_cases(arg)
+    generate_test_cases(infile, outfile)
 
