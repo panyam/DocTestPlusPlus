@@ -1,0 +1,13 @@
+*.swp
+*.swz
+*.pyc
+*.pyo
+*.log
+*.bak
+*.pid
+*.log
+._*.h
+._*.m
+._*.*
+*.o
+tags.*
