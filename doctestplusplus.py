@@ -192,7 +192,7 @@ def evaluate_line_number(line_offsets, file_offset):
             return i - 1
     return num_lines - 1
 
-def generate_test_cases(infile_name, outfile_name = None):
+def generate_test_cases(infile_name, outfile_name = None, preamble_file = None, disable_line_numbers = False):
     """
     Extracts all tests cases from infile and writes it to outfile.
     If no output file is specified, output is sent to standard output.
@@ -200,6 +200,11 @@ def generate_test_cases(infile_name, outfile_name = None):
     outfile = sys.stdout
     if outfile_name:
         assert os.path.abspath(infile_name) != os.path.abspath(outfile_name), "Input and Output files are the same"
+        # create the output folder
+        dirname = os.path.dirname(os.path.abspath(outfile_name))
+        if not os.path.isdir(dirname): 
+            print "Creating Folder: ", dirname
+            os.makedirs(dirname)
         outfile = open(outfile_name, "w")
 
     # evaluate the offsets within the file of each line so we can
@@ -208,8 +213,14 @@ def generate_test_cases(infile_name, outfile_name = None):
 
     indent = 0
     def writeln(line):
-        if (outfile != sys.stdout): print "%s%s" % (indent * "    ", line)
+        # if (outfile != sys.stdout): print "%s%s" % (indent * "    ", line)
         outfile.write("%s%s\n" % (indent * "    ", line))
+
+
+    if not preamble_file:
+        writeln("#include <UnitTest++.h>")
+    else:
+        writeln(open(preamble_file).read())
 
     for test, comment_span in tests_in_file(infile_name):
         test_suite      = test.test_args.get("suite", None)
@@ -221,6 +232,11 @@ def generate_test_cases(infile_name, outfile_name = None):
                 writeln("{")
                 indent += 1
 
+            # write the line number where this test actually begins
+            if not disable_line_numbers:
+                line_number         = evaluate_line_number(line_offsets, comment_span[0] + test.test_offset)
+                writeln('#line %d "%s"' % (line_number + 1, infile_name))
+
             if test_fixture:
                 writeln("TEST_FIXTURE(%s, %s)" % (test_fixture, test.test_name))
             else:
@@ -229,8 +245,9 @@ def generate_test_cases(infile_name, outfile_name = None):
             indent += 1
 
         # write the line number where this snippet begins
-        line_number         = evaluate_line_number(line_offsets, comment_span[0] + test.test_offset)
-        writeln('#line %d "%s"' % (line_number, file))
+        if not disable_line_numbers:
+            line_number         = evaluate_line_number(line_offsets, comment_span[0] + test.test_body_offset)
+            writeln('#line %d "%s"' % (line_number + 1, infile_name))
 
         # now write the tests
         test_lines          = test.test_body.split("\n")
@@ -255,14 +272,28 @@ def usage():
     sys.exit(1)
 
 if __name__ == "__main__":
-    infile = outfile = None
+    from optparse import OptionParser
+    optparser = OptionParser(usage = "%prog [options] infile outfile",
+                             version = "%prog 0.1")
 
+    optparser.add_option("-p", "--preamble", dest="preamble", default = "",
+                         help = "File to add as preamble to generated file - usually include headers",
+                         metavar = "PREAMBLE")
+    optparser.add_option("-d", "--disable_line_numbers", dest="disable_line_numbers",
+                         action = "store_true", default = False,
+                         help = "Disables printing of line numbers in generated files.  " +
+                                "This means you have to debug the generated file than the original file.",
+                         metavar = "DISABLE")
+
+    (options, args) = optparser.parse_args()
+
+    infile = outfile = None
     try:
-        infile  = sys.argv[1]
-        try: outfile = sys.argv[2]
+        infile  = args[0]
+        try: outfile = args[1]
         except Exception: pass
     except Exception:
-        usage()
+        optparser.print_help()
 
-    generate_test_cases(infile, outfile)
+    generate_test_cases(infile, outfile, options.preamble, options.disable_line_numbers)
 
